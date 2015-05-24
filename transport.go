@@ -536,6 +536,9 @@ func (cc *clientConn) readLoop() {
 			cs.pw.Write(f.Data())
 			cs.received += f.Length
 			//log.Printf("Finished writing data")
+			cc.fr.WriteWindowUpdate(streamID, cs.received)
+			cc.bw.Flush()
+			cs.received = 0
 		case *http2.GoAwayFrame:
 			cc.t.removeClientConn(cc)
 			if f.ErrCode != 0 {
@@ -561,10 +564,6 @@ func (cc *clientConn) readLoop() {
 		if streamEnded {
 			cs.pw.Close()
 			delete(activeRes, streamID)
-		} else {
-			cc.fr.WriteWindowUpdate(streamID, cs.received)
-			cc.bw.Flush()
-			cs.received = 0
 		}
 		if headersEnded {
 			if cs == nil {
