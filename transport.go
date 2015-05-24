@@ -95,10 +95,11 @@ type clientConn struct {
 }
 
 type clientStream struct {
-	ID   uint32
-	resc chan resAndError
-	pw   *io.PipeWriter
-	pr   *io.PipeReader
+	ID       uint32
+	resc     chan resAndError
+	received uint32
+	pw       *io.PipeWriter
+	pr       *io.PipeReader
 }
 
 type stickyErrWriter struct {
@@ -477,7 +478,13 @@ func (cc *clientConn) readLoop() {
 			cc.readerErr = err
 			return
 		}
-		//log.Printf("Transport received %v: %#v", f.Header())
+		/*
+			if _, ok := f.(*http2.DataFrame); ok {
+				log.Printf("Transport received. %v: %#v", f.Header(), "data")
+			} else {
+				log.Printf("Transport received. %v: %#v", f.Header(), f)
+			}
+		*/
 
 		streamID := f.Header().StreamID
 
@@ -527,6 +534,7 @@ func (cc *clientConn) readLoop() {
 			//log.Printf("DATA: %q", string(f.Data()))
 			//log.Printf("Starting to write data %d", len(f.Data()))
 			cs.pw.Write(f.Data())
+			cs.received += f.Length
 			//log.Printf("Finished writing data")
 		case *http2.GoAwayFrame:
 			cc.t.removeClientConn(cc)
@@ -535,6 +543,8 @@ func (cc *clientConn) readLoop() {
 				log.Printf("transport got GOAWAY with error code = %v", f.ErrCode)
 			}
 			cc.setGoAway(f)
+		case *http2.RSTStreamFrame:
+			streamEnded = true
 		default:
 			log.Printf("Transport: unhandled response frame type %T", f)
 		}
@@ -551,6 +561,10 @@ func (cc *clientConn) readLoop() {
 		if streamEnded {
 			cs.pw.Close()
 			delete(activeRes, streamID)
+		} else {
+			cc.fr.WriteWindowUpdate(streamID, cs.received)
+			cc.bw.Flush()
+			cs.received = 0
 		}
 		if headersEnded {
 			if cs == nil {
