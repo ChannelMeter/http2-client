@@ -536,11 +536,6 @@ func (cc *clientConn) readLoop() {
 			cs.pw.Write(f.Data())
 			cs.received += f.Length
 			//log.Printf("Finished writing data")
-			cc.mu.Lock()
-			cc.fr.WriteWindowUpdate(streamID, cs.received)
-			cc.bw.Flush()
-			cc.mu.Unlock()
-			cs.received = 0
 		case *http2.GoAwayFrame:
 			cc.t.removeClientConn(cc)
 			if f.ErrCode != 0 {
@@ -562,6 +557,13 @@ func (cc *clientConn) readLoop() {
 				continueStreamID = streamID
 			}
 		}
+		if cs.received >= 8388608 {
+			cc.mu.Lock()
+			cc.fr.WriteWindowUpdate(streamID, cs.received)
+			cc.bw.Flush()
+			cc.mu.Unlock()
+			cs.received = 0
+		}
 
 		if streamEnded {
 			cs.pw.Close()
@@ -571,6 +573,12 @@ func (cc *clientConn) readLoop() {
 			if cs == nil {
 				panic("couldn't find stream") // TODO be graceful
 			}
+			cc.mu.Lock()
+			cc.fr.WriteWindowUpdate(streamID, 33554432)
+			cc.bw.Flush()
+			cc.mu.Unlock()
+			cs.received = 0
+
 			// TODO: set the Body to one which notes the
 			// Close and also sends the server a
 			// RST_STREAM
