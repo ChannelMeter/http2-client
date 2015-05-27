@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bradfitz/http2/hpack"
 )
@@ -160,6 +161,7 @@ func (t *Transport) CloseIdleConnections() {
 }
 
 var errClientConnClosed = errors.New("http2: client conn is closed")
+var errTimeout = errors.New("http2: timeout waiting for response")
 
 func shouldRetryRequest(err error) bool {
 	// TODO: or GOAWAY graceful shutdown stuff
@@ -375,15 +377,18 @@ func (cc *clientConn) roundTrip(req *http.Request) (*http.Response, error) {
 	if werr != nil {
 		return nil, werr
 	}
-
-	re := <-cs.resc
-	if re.err != nil {
-		return nil, re.err
+	select {
+	case re := <-cs.resc:
+		if re.err != nil {
+			return nil, re.err
+		}
+		res := re.res
+		res.Request = req
+		res.TLS = cc.tlsState
+		return res, nil
+	case <-time.NewTimer(30 * time.Second).C:
+		return nil, errTimeout
 	}
-	res := re.res
-	res.Request = req
-	res.TLS = cc.tlsState
-	return res, nil
 }
 
 // requires cc.mu be held.
