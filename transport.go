@@ -571,7 +571,10 @@ func (cc *clientConn) readLoop() {
 		}
 
 		if streamEnded {
-			cs.pw.Close()
+			if cs.pw != nil {
+				// figure out what should really be done here?
+				cs.pw.Close()
+			}
 			delete(activeRes, streamID)
 		}
 		if headersEnded {
