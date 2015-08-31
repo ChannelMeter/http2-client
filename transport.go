@@ -48,6 +48,7 @@ const (
 var (
 	clientPreface = []byte(ClientPreface)
 )
+var errBadProtocol = fmt.Errorf("Bad protocol")
 
 type streamEnder interface {
 	StreamEnded() bool
@@ -133,7 +134,9 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	for {
 		cc, err := t.getClientConn(host, port)
-		if err != nil {
+		if err == errBadProtocol {
+			return t.Fallback.RoundTrip(req)
+		} else if err != nil {
 			return nil, err
 		}
 		res, err := cc.roundTrip(req)
@@ -238,7 +241,8 @@ func (t *Transport) newClientConn(host, port, key string) (*clientConn, error) {
 	state := tconn.ConnectionState()
 	if p := state.NegotiatedProtocol; p != http2.NextProtoTLS {
 		// TODO(bradfitz): fall back to Fallback
-		return nil, fmt.Errorf("bad protocol: %v", p)
+		// return nil, fmt.Errorf("bad protocol: %v", p)
+		return nil, errBadProtocol
 	}
 	if !state.NegotiatedProtocolIsMutual {
 		return nil, errors.New("could not negotiate protocol mutually")
